@@ -1,0 +1,22 @@
+{
+	"name": "sliceofpi",
+	"version": "0.1.0",
+	"description": "Context management for the Pi coding agent on 10M-token-context models: tiered cost/size advice, live per-call trimming, tool-output stubbing with recall, deterministic compaction",
+	"type": "module",
+	"license": "MIT",
+	"keywords": ["pi", "pi-extension", "context", "compaction", "10M", "pokee"],
+	"piConfig": {
+		"extensions": ["src/index.ts"]
+	},
+	"files": ["src", "README.md", "NOTICE.md", "LICENSE", "DESIGN.md"],
+	"scripts": {
+		"test": "vitest --run",
+		"typecheck": "tsc --noEmit",
+		"bench": "node --experimental-strip-types bench/run.ts"
+	},
+	"devDependencies": {
+		"@types/node": "24.12.4",
+		"typescript": "5.9.3",
+		"vitest": "3.2.4"
+	}
+}
