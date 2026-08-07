@@ -164,7 +164,22 @@ degradation-sensitive quality probes.
   over the same tool names (`recall`).
 - Cost figures are computed from provider-reported usage where available and
   chars/4 estimates otherwise — treat them as accurate-to-a-few-percent, not
-  billing-grade.
+  billing-grade. (Pokee bills on model-reported token usage, which is exactly
+  the number sliceofpi anchors on.)
+
+## Pokee gateway limits (accounted for)
+
+Per [Pokee's long-context docs](https://console.pokee.ai/model): requests over
+16MiB (~4M tokens) require SSE streaming; the hard body cap is 45MiB (~11M
+tokens); a 10M-token prompt prefills for ~7 minutes; accounts get 20M
+tokens/min, so multi-M resident contexts are effectively turn-rate-limited.
+sliceofpi warns as you approach these cliffs (and force-compacts before the
+45MiB reject, even in big-task mode), and translates gateway errors
+(402 credits, 429 + Retry-After, 413, SSE-required) into plain-language
+notices instead of silent retries. **Set your client timeout to at least 10
+minutes** for multi-million-token prompts — Pi-side HTTP defaults may be
+shorter. Background mode and Idempotency-Key are reserved for the future
+advisor's own summarizer calls; Pi's interactive traffic doesn't use them.
 
 ## Development
 

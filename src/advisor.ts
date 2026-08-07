@@ -46,11 +46,25 @@ export function advise(input: AdvisorInput): Advice {
 		input.taskEstimateTokens > 0 &&
 		input.taskEstimateTokens * 10 < resident;
 
+	// Pokee gateway realities (docs): ~4 chars/token means the 16MiB SSE
+	// boundary lands near 4M tokens and the 45MiB hard reject near 11M; the
+	// account-wide 20M tokens/min limit makes multi-M contexts turn-rate-limited.
+	let gatewayNote = "";
+	if (resident >= 9_000_000)
+		gatewayNote = ` WARNING: approaching the 45MiB request cap — the gateway will reject soon; compact now.`;
+	else if (resident >= 4_000_000)
+		gatewayNote = ` Note: requests this size stream via SSE, prefill can take minutes, and >2 turns/min will hit the 20M tokens/min limit.`;
+
 	if (tier === "headroom" && !big) {
 		notice =
 			`Context is ${fmtTokens(resident)} — headroom territory (${fmtUsd(perTurn)}/turn). ` +
-			`If this is intentional, run /slice big <budget>; otherwise /slice compact.`;
+			`If this is intentional, run /slice big <budget>; otherwise /slice compact.` +
+			gatewayNote;
 		shouldCompact = shouldCompact || s.autoCompact;
+	} else if (big && gatewayNote) {
+		notice = `Big-task mode at ${fmtTokens(resident)}.${gatewayNote}`;
+		// the 45MiB reject is a hard cliff: compact even in big-task mode
+		shouldCompact = shouldCompact || resident >= 9_000_000;
 	} else if (tier === "act" && !big) {
 		notice = `Context ${fmtTokens(resident)} ≥ act threshold — compacting at next turn boundary (auto). /slice auto off to disable.`;
 		shouldCompact = shouldCompact || s.autoCompact;

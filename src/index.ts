@@ -86,6 +86,27 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		deliverNotice(advice, ctx);
 	});
 
+	// ---- translate provider errors into plain-language notices --------------
+	pi.on("after_provider_response", (event, ctx) => {
+		const status = (event as { status?: number }).status;
+		if (!status || status < 400) return;
+		const headers = (event as { headers?: Record<string, string> }).headers ?? {};
+		if (status === 402)
+			ctx.ui.notify("sliceofpi: Pokee account is out of credits (402) — top up before continuing.", "error");
+		else if (status === 429)
+			ctx.ui.notify(
+				`sliceofpi: rate limited (429)${headers["retry-after"] ? `, retry after ${headers["retry-after"]}s` : ""} — at multi-M context, >2 turns/min exceeds the 20M tokens/min account limit.`,
+				"warn",
+			);
+		else if (status === 413 || status === 400)
+			ctx.ui.notify(
+				status === 413
+					? "sliceofpi: request body exceeded the 45MiB gateway cap (413) — /slice compact to continue."
+					: "sliceofpi: provider rejected the request (400) — if context is multi-M, the request may need SSE streaming.",
+				status === 413 ? "error" : "warn",
+			);
+	});
+
 	// ---- track spend + health from assistant messages -----------------------
 	pi.on("message_end", async (event, _ctx) => {
 		const m = event.message as AgentMessage;
