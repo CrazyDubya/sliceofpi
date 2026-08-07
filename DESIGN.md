@@ -173,4 +173,7 @@ measures cost, retention, and correctness only.
 - Historical-conversation recall (seam: recall `scope` param over an index of
   past session files)
 - LLM-assisted task sizing (seam: advisor interface)
-- Live model-quality A/B benchmark (needs API key + spend)
+
+Since v0.1: the live A/B harness (bench/live/) was built and run against the
+real Pokee API — see README "Live A/B" for results; k≥3 repeats remain future
+work.
