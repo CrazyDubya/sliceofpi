@@ -20,7 +20,7 @@
 # sliceofpi
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![tests](https://img.shields.io/badge/tests-27%20passing-brightgreen.svg)](test/)
+[![tests](https://img.shields.io/badge/tests-31%20passing-brightgreen.svg)](test/)
 [![pi extension](https://img.shields.io/badge/pi-extension-8A2BE2.svg)](https://github.com/earendil-works/pi)
 [![model](https://img.shields.io/badge/tuned%20for-Pokee--Isaac%2010M-orange.svg)](https://console.pokee.ai/model)
 
@@ -61,10 +61,18 @@ opt into for genuinely big tasks — never as a default you drift into.
   spend. When a small task arrives on a fat tail, it says so:
   *"This task looks small (~2k tokens, $0.0003); the other $0.05 per turn is
   conversation tail."*
-- **Health-adaptive thresholds** — repetition/error scoring lowers the
-  auto-compact trigger when the model shows long-context degradation.
+- **Health-adaptive thresholds** — repetition, error-rate, and stuckness-drift
+  scoring lowers the auto-compact trigger when the model shows long-context
+  degradation.
 - **Agent self-service** — `context_info` and `request_compact` tools let the
   agent manage its own context (compaction fires at turn boundaries only).
+  Tier escalations to act/headroom land as visible session messages, so the
+  model sees the advisory too.
+- **Gateway-aware** — warns before Pokee's 16MiB SSE and 45MiB request cliffs
+  and translates 402/429/413 errors into plain language (see
+  [Pokee gateway limits](#pokee-gateway-limits-accounted-for)).
+- **Restart-safe** — the index, big-task mode, and session spend persist via
+  Pi session entries; the turn clock is derived from the transcript itself.
 
 ## Install
 
@@ -82,9 +90,15 @@ requests over 16MiB require SSE streaming):
       "baseUrl": "https://api.pokee.ai/v1",
       "api": "openai-completions",
       "apiKey": "POKEE_API_KEY",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
       "models": [
         {
-          "id": "pokee-isaac-28b",
+          "id": "pokee-isaac",
+          "name": "Pokee Isaac",
+          "input": ["text"],
           "contextWindow": 10000000,
           "maxTokens": 60000,
           "cost": { "input": 0.15, "output": 1.0 }
@@ -103,8 +117,19 @@ requests over 16MiB require SSE streaming):
 - `/slice normal` — back to normal; compact recommended
 - `/slice auto on|off` — toggle auto-compaction
 
-Settings live under the `sliceofpi` key of Pi's settings.json; defaults are
-the `pokee-isaac-10m` profile (src/config.ts).
+Settings live under the `sliceofpi` key of `~/.pi/agent/settings.json`
+(global) or `<project>/.pi/settings.json` (project wins), merged over the
+`pokee-isaac-10m` profile defaults (src/config.ts):
+
+```json
+{
+  "sliceofpi": {
+    "tiers": { "advise": 200000, "act": 350000 },
+    "autoCompact": true,
+    "keepRecentTokens": 30000
+  }
+}
+```
 
 ## Benchmark
 
@@ -185,7 +210,7 @@ advisor's own summarizer calls; Pi's interactive traffic doesn't use them.
 
 ```bash
 npm install
-npm test        # vitest, 27 tests
+npm test        # vitest, 31 tests
 npm run typecheck
 npm run bench
 ```
