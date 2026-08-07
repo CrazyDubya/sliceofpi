@@ -40,7 +40,7 @@ opt into for genuinely big tasks — never as a default you drift into.
 ## Install
 
 ```bash
-pi install git:github.com/YOURNAME/sliceofpi   # or clone into ~/.pi/agent/extensions/
+pi install git:github.com/crazydubya/sliceofpi   # or clone into ~/.pi/agent/extensions/
 ```
 
 Point Pi at Pokee-Isaac via `~/.pi/agent/models.json` (OpenAI-compatible;
@@ -92,8 +92,30 @@ three strategies at Pokee pricing. Representative run (3 seeds × 60 turns):
 \* modeled constant (LLM summaries are lossy; generously assumed 20%). `none`
 and `sliceofpi` retention are measured: a planted fact counts as retained only
 if it is inline in the final view or actually surfaced by a `recall` BM25
-query. What the offline bench cannot show: model-quality effects of trimming —
-that needs a live A/B with real tasks (see DESIGN.md).
+query.
+
+### Live A/B (real Pokee-Isaac API, preliminary — k=1 per arm)
+
+`bench/live/run.ts` drives scripted episodes through `pi --mode rpc` in both
+arms with programmatic verifiers; raw results in `bench/live/results/`.
+
+- **Parity** (short coding tasks): both arms pass at equal cost (~$0.003) —
+  sliceofpi stays out of the way below its thresholds.
+- **Fat tail** (13 prompts, ~700k-token tail): both arms pass all probes
+  including retrieval of a fact planted 10+ prompts earlier and a bug fix.
+  Stock Pi: $0.449 (2.97M input tokens); sliceofpi: **$0.135** (878k) —
+  **3.3× cheaper, 2.2× faster**. Stock Pi re-billed ~200k tokens
+  (~$0.03/prompt) to answer one-word questions; sliceofpi paid 6–16k.
+- **Big tail** (three 4,800-line logs read in full): sliceofpi passed all
+  probes at $0.33. Stock Pi spent $0.76 through just 6 of 10 prompts, then
+  exhausted the account's remaining API credits (provider 402) before
+  reaching the probes — a budget exhaustion, not a measured quality failure,
+  on the same account and episode that sliceofpi completed with credit to
+  spare.
+
+Preliminary caveats: single repeat per arm, one task family, one model.
+Planned: k≥3 repeats, funded completion of the big-tail stock arm, and
+degradation-sensitive quality probes.
 
 ## Development
 
