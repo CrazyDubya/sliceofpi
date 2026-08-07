@@ -28,7 +28,9 @@ Context management for the [Pi coding agent](https://github.com/earendil-works/p
 on 10M-token-context models — built for
 [Pokee-Isaac 28B](https://console.pokee.ai/model), where the window is huge
 but every turn re-sends the entire context at flat per-token pricing with no
-prompt caching. **The window is not the constraint; cost and attention are.**
+prompt caching. **The window is not the constraint; the bill is.** Isaac can
+hold 10M tokens — but with no cache, every message re-buys whatever you keep
+resident.
 
 sliceofpi keeps your steady-state working set small, tells you what your
 conversation tail costs per message, and treats the 10M window as headroom you
@@ -38,8 +40,11 @@ opt into for genuinely big tasks — never as a default you drift into.
 
 - **Tiered advice, absolute tokens** — quiet → notice (100k) → advise (250k)
   → act (400k, auto-compact) → headroom (1M+, opt-in big-task mode).
-  Percent-of-window triggers are rejected by design: 80% of 10M is 8M, far
-  past both economic sense and plausible model attention.
+  Percent-of-window triggers are rejected by design: on a 10M window they
+  wouldn't fire until you're carrying millions of resident tokens — at $0.15/M
+  per message, that's a threshold measured in dollars per reply, long after
+  you'd want to be asked. Use the full 10M when a task earns it (`/slice big`);
+  just don't drift there.
 - **Live per-call trimming** — a pure-transform pipeline in Pi's `context`
   event stubs old tool outputs, purges failed-call bodies, and caps the
   outbound view. Pi's transcript stays complete; only what the model sees is
