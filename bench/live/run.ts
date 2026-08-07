@@ -17,8 +17,8 @@ const REPO = resolve(HERE, "../..");
 const PI_BIN = "/opt/homebrew/bin/pi";
 const PRICE_IN = 0.15 / 1e6;
 const PRICE_OUT = 1.0 / 1e6;
-const EPISODE_BUDGET_USD = 1.0;
-const GLOBAL_BUDGET_USD = 2.2;
+const EPISODE_BUDGET_USD = 1.4;
+const GLOBAL_BUDGET_USD = 1.85;
 const PROMPT_TIMEOUT_MS = 300_000;
 
 interface Task {
@@ -44,6 +44,31 @@ const TASKS: Task[] = [
 			"Implement slugify in slug.js so `node --test slug.test.js` passes. Do NOT modify slug.test.js. Run the tests to confirm.",
 		],
 		verify: (wd) => spawnSync("node", ["--test", "slug.test.js"], { cwd: wd }).status === 0,
+	},
+	{
+		id: "t5-bigtail",
+		kind: "longtail",
+		prompts: [
+			"Run `node gen-logs.js 2 > run1.log && node gen-logs.js 2 > run2.log && node gen-logs.js 2 > run3.log`. Then read run1.log IN FULL (page through the whole file with the read tool) and summarize the deploy in one paragraph.",
+			"Read run2.log in full the same way and report its line count and the time range covered.",
+			"Read run3.log in full the same way and report how many 'rolling restart' events it contains.",
+			"Run `node -e \"console.log(6*7)\"` and tell me the result.",
+			"What is the capital of France? One word answer.",
+			"Run `node -e \"console.log(process.version)\"` and report the version.",
+			"List the files in this directory with `ls -la` and tell me how many there are.",
+			"What does HTTP status 418 mean? One sentence.",
+			"From run1.log which you read earlier: write the exact value of deploy_key_fingerprint (just the value) to answer.txt.",
+			"Fix the bug in mathx.js so `node --test mathx.test.js` passes without modifying the test file, and re-run the tests to confirm.",
+		],
+		verify: (wd) => {
+			let ok = true;
+			try {
+				ok = readFileSync(join(wd, "answer.txt"), "utf8").includes("XJ4-QQ7-ZZ9-PK2");
+			} catch {
+				ok = false;
+			}
+			return ok && spawnSync("node", ["--test", "mathx.test.js"], { cwd: wd }).status === 0;
+		},
 	},
 	{
 		id: "t4-fattail",

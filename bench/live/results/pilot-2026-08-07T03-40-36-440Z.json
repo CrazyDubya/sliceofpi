@@ -1,0 +1,134 @@
+[
+  {
+    "task": "t5-bigtail",
+    "kind": "longtail",
+    "arm": "b",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.3297885,
+    "inputTokens": 2174410,
+    "outputTokens": 3627,
+    "turns": 32,
+    "seconds": 144,
+    "overBudget": false,
+    "aborts": 0,
+    "perPrompt": [
+      {
+        "prompt": 0,
+        "inputDelta": 275510,
+        "usd": 0.042359499999999994
+      },
+      {
+        "prompt": 1,
+        "inputDelta": 406173,
+        "usd": 0.06173595
+      },
+      {
+        "prompt": 2,
+        "inputDelta": 969858,
+        "usd": 0.1460477
+      },
+      {
+        "prompt": 3,
+        "inputDelta": 385543,
+        "usd": 0.05790044999999999
+      },
+      {
+        "prompt": 4,
+        "inputDelta": 9355,
+        "usd": 0.001423249999999987
+      },
+      {
+        "prompt": 5,
+        "inputDelta": 19011,
+        "usd": 0.002932649999999981
+      },
+      {
+        "prompt": 6,
+        "inputDelta": 19793,
+        "usd": 0.0032429500000000777
+      },
+      {
+        "prompt": 7,
+        "inputDelta": 10411,
+        "usd": 0.0016786499999999482
+      },
+      {
+        "prompt": 8,
+        "inputDelta": 32127,
+        "usd": 0.00501605000000005
+      },
+      {
+        "prompt": 9,
+        "inputDelta": 46629,
+        "usd": 0.007451349999999968
+      }
+    ]
+  },
+  {
+    "task": "t5-bigtail",
+    "kind": "longtail",
+    "arm": "a",
+    "repeat": 0,
+    "success": false,
+    "usd": 0.7591028999999999,
+    "inputTokens": 5042166,
+    "outputTokens": 2778,
+    "turns": 31,
+    "seconds": 261,
+    "overBudget": false,
+    "aborts": 0,
+    "perPrompt": [
+      {
+        "prompt": 0,
+        "inputDelta": 914846,
+        "usd": 0.13871489999999997
+      },
+      {
+        "prompt": 1,
+        "inputDelta": 472046,
+        "usd": 0.07128590000000001
+      },
+      {
+        "prompt": 2,
+        "inputDelta": 2231880,
+        "usd": 0.335446
+      },
+      {
+        "prompt": 3,
+        "inputDelta": 711517,
+        "usd": 0.10680055
+      },
+      {
+        "prompt": 4,
+        "inputDelta": 355899,
+        "usd": 0.053406850000000006
+      },
+      {
+        "prompt": 5,
+        "inputDelta": 355978,
+        "usd": 0.053448699999999905
+      },
+      {
+        "prompt": 6,
+        "inputDelta": 0,
+        "usd": 0
+      },
+      {
+        "prompt": 7,
+        "inputDelta": 0,
+        "usd": 0
+      },
+      {
+        "prompt": 8,
+        "inputDelta": 0,
+        "usd": 0
+      },
+      {
+        "prompt": 9,
+        "inputDelta": 0,
+        "usd": 0
+      }
+    ]
+  }
+]

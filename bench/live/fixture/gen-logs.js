@@ -10,8 +10,9 @@ const rand = () => {
 };
 const svcs = ["auth", "billing", "ingest", "search", "notify", "gateway"];
 const verbs = ["starting", "healthcheck ok", "scaled to 3 replicas", "connection pool warm", "cache primed", "rolling restart", "draining", "ready"];
+const mult = Math.max(1, Number(process.argv[2]) || 1);
 const lines = [];
-for (let i = 0; i < 2400; i++) {
+for (let i = 0; i < 2400 * mult; i++) {
 	const ts = new Date(1754000000000 + i * 733).toISOString();
 	lines.push(`${ts} [${svcs[Math.floor(rand() * svcs.length)]}] ${verbs[Math.floor(rand() * verbs.length)]} (pid ${1000 + Math.floor(rand() * 9000)})`);
 	if (i === 1187) lines.push(`${ts} [gateway] config loaded: deploy_key_fingerprint=XJ4-QQ7-ZZ9-PK2 rotation=90d`);
