@@ -89,14 +89,25 @@ export interface ExtensionContext {
 	signal?: AbortSignal;
 }
 
+export interface ToolResultReturn {
+	content: ContentBlock[];
+	details?: unknown;
+	terminate?: boolean;
+}
+
 export interface ToolDefinition {
 	name: string;
+	label?: string;
 	description: string;
 	parameters: unknown;
+	/** Pi signature (docs/extensions.md): throw to signal an error. */
 	execute(
-		args: Record<string, unknown>,
+		toolCallId: string,
+		params: Record<string, unknown>,
+		signal: AbortSignal | undefined,
+		onUpdate: ((partial: ToolResultReturn) => void) | undefined,
 		ctx: ExtensionContext,
-	): Promise<{ content: ContentBlock[]; isError?: boolean }>;
+	): Promise<ToolResultReturn>;
 }
 
 export interface ExtensionAPI {

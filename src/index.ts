@@ -154,10 +154,10 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 				query: { type: "string", description: "free-text search query" },
 			},
 		},
-		execute: async (args, ctx) => {
-			if (typeof args.ref === "string") {
-				const rec = state.byRef(args.ref.trim());
-				if (!rec) return { content: [{ type: "text", text: `No record for ${args.ref}` }], isError: true };
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+			if (typeof params.ref === "string") {
+				const rec = state.byRef(params.ref.trim());
+				if (!rec) throw new Error(`No record for ${params.ref}`);
 				state.grantGrace(rec.ref, state.turn + settings.recoveryGraceTurns);
 				if (rec.spillPath) {
 					const { text, truncated } = readSpill(rec.spillPath);
@@ -166,18 +166,19 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 					};
 				}
 				const inline = findInline(lastMessages, rec.toolCallId);
-				return inline
-					? { content: [{ type: "text", text: inline }] }
-					: { content: [{ type: "text", text: `${args.ref}: content no longer inline and was not spilled (only ${rec.chars} chars; likely still visible upstream)` }], isError: true };
+				if (inline) return { content: [{ type: "text", text: inline }] };
+				throw new Error(
+					`${params.ref}: content no longer inline and was not spilled (only ${rec.chars} chars; likely still visible upstream)`,
+				);
 			}
-			if (typeof args.query === "string") {
+			if (typeof params.query === "string") {
 				const docs = searchDocs(ctx);
-				const hits = bm25Search(docs, args.query, 5);
+				const hits = bm25Search(docs, params.query, 5);
 				if (hits.length === 0) return { content: [{ type: "text", text: "No matches." }] };
 				const text = hits.map((h) => `${h.label} (score ${h.score.toFixed(2)})\n${h.excerpt}`).join("\n---\n");
 				return { content: [{ type: "text", text }] };
 			}
-			return { content: [{ type: "text", text: "Pass ref or query." }], isError: true };
+			throw new Error("Pass ref or query.");
 		},
 	});
 
@@ -186,7 +187,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		name: "context_info",
 		description: "Current context usage, tier, and per-turn cost.",
 		parameters: { type: "object", properties: {} },
-		execute: async (_args, ctx) => {
+		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
 			const resident = currentResident(ctx);
 			const a = advise({
 				residentTokens: resident,
@@ -205,7 +206,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		name: "request_compact",
 		description: "Request compaction; it fires at the next turn boundary (never mid-turn).",
 		parameters: { type: "object", properties: {} },
-		execute: async () => {
+		execute: async (_toolCallId, _params, _signal, _onUpdate, _ctx) => {
 			state.compactRequested = true;
 			return { content: [{ type: "text", text: "Compaction scheduled for the next turn boundary." }] };
 		},

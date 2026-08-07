@@ -1,0 +1,81 @@
+[
+  {
+    "task": "t1-median",
+    "kind": "parity",
+    "arm": "a",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.00324115,
+    "inputTokens": 16101,
+    "outputTokens": 826,
+    "turns": 5,
+    "seconds": 13,
+    "overBudget": false
+  },
+  {
+    "task": "t1-median",
+    "kind": "parity",
+    "arm": "b",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.0033072999999999996,
+    "inputTokens": 17002,
+    "outputTokens": 757,
+    "turns": 5,
+    "seconds": 12,
+    "overBudget": false
+  },
+  {
+    "task": "t2-slugify",
+    "kind": "parity",
+    "arm": "a",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.0021131,
+    "inputTokens": 10074,
+    "outputTokens": 602,
+    "turns": 4,
+    "seconds": 10,
+    "overBudget": false
+  },
+  {
+    "task": "t2-slugify",
+    "kind": "parity",
+    "arm": "b",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.00312725,
+    "inputTokens": 15175,
+    "outputTokens": 851,
+    "turns": 5,
+    "seconds": 14,
+    "overBudget": false
+  },
+  {
+    "task": "t3-longtail",
+    "kind": "longtail",
+    "arm": "a",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.06342025,
+    "inputTokens": 411075,
+    "outputTokens": 1759,
+    "turns": 11,
+    "seconds": 39,
+    "overBudget": false
+  },
+  {
+    "task": "t3-longtail",
+    "kind": "longtail",
+    "arm": "b",
+    "repeat": 0,
+    "success": false,
+    "usd": 0,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "turns": 4,
+    "seconds": 301,
+    "overBudget": false,
+    "error": "rpc timeout"
+  }
+]

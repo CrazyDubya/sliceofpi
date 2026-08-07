@@ -1,0 +1,16 @@
+[
+  {
+    "task": "t3-longtail",
+    "kind": "longtail",
+    "arm": "b",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.06406995,
+    "inputTokens": 417773,
+    "outputTokens": 1404,
+    "turns": 11,
+    "seconds": 40,
+    "overBudget": false,
+    "aborts": 0
+  }
+]
