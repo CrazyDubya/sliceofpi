@@ -18,6 +18,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { POKEE_ISAAC_10M, loadSettings } from "../src/config.ts";
+import { fmtTokens, turnCostUsd } from "../src/cost.ts";
 import { compileSummary } from "../src/compaction.ts";
 import type { AgentMessage } from "../src/pi-types.ts";
 import { runPipeline } from "../src/pipeline.ts";
@@ -197,7 +198,7 @@ function runSlice(w: Workload): StrategyResult {
 				sessionLog.set(rec.ref, text);
 				if (text.length > settings.spillThresholdChars && !spilled.has(rec.ref)) {
 					spilled.set(rec.ref, text);
-					state.setSpill(m.toolCallId, `mem://${rec.ref}`);
+					state.setSpilled(m.toolCallId);
 				}
 			}
 		transcript.push(...turnMsgs);
@@ -242,7 +243,7 @@ function finalize(name: string, billedIn: number, turns: number, peak: number, r
 		name,
 		billedInputTokens: billedIn,
 		billedOutputTokens: billedOut,
-		usd: (billedIn * S.priceInPerM + billedOut * S.priceOutPerM) / 1e6,
+		usd: turnCostUsd(billedIn, billedOut, S),
 		peakResident: peak,
 		retention,
 		invariantsOk: ok,
@@ -268,12 +269,8 @@ console.log("------------|--------------|----------|----------|-----------|-----
 for (const [name, rs] of byName) {
 	const avg = (f: (r: StrategyResult) => number) => rs.reduce((a, r) => a + f(r), 0) / rs.length;
 	console.log(
-		`${name.padEnd(11)} | ${fmtM(avg((r) => r.billedInputTokens)).padStart(12)} | $${avg((r) => r.usd).toFixed(2).padStart(7)} | ${fmtM(avg((r) => r.peakResident)).padStart(8)} | ${(avg((r) => r.retention) * 100).toFixed(0).padStart(8)}% | ${rs.every((r) => r.invariantsOk) ? "ok" : "VIOLATED"}`,
+		`${name.padEnd(11)} | ${fmtTokens(avg((r) => r.billedInputTokens)).padStart(12)} | $${avg((r) => r.usd).toFixed(2).padStart(7)} | ${fmtTokens(avg((r) => r.peakResident)).padStart(8)} | ${(avg((r) => r.retention) * 100).toFixed(0).padStart(8)}% | ${rs.every((r) => r.invariantsOk) ? "ok" : "VIOLATED"}`,
 	);
-}
-
-function fmtM(t: number): string {
-	return t >= 1e6 ? `${(t / 1e6).toFixed(2)}M` : `${Math.round(t / 1e3)}k`;
 }
 
 const outDir = join(dirname(fileURLToPath(import.meta.url)), "results");

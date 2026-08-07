@@ -17,12 +17,12 @@ export interface ToolRecord {
 	toolName: string;
 	hash: string;
 	chars: number;
+	/** head of the output, captured once at record() time for stub rendering */
+	preview: string;
 	/** user-turn index when this result was produced */
 	turn: number;
-	/** absolute path of sidecar spill file, if spilled */
-	spillPath?: string;
-	/** user-turn index until which this record is grace-protected from stubbing */
-	graceUntilTurn?: number;
+	/** output was spilled to <sessionDir>/<sessionId>-blobs/<ref>.txt */
+	spilled?: boolean;
 	isError?: boolean;
 }
 
@@ -44,8 +44,12 @@ export function contentHash(text: string): string {
 export class SliceState {
 	private byId = new Map<string, ToolRecord>();
 	private byHash = new Map<string, ToolRecord>();
+	/** every record sharing a ref (content-hash dedup aliases) */
+	private refMap = new Map<string, ToolRecord[]>();
+	/** ref -> protected-through user turn (recall recovery grace) */
+	private grace = new Map<string, number>();
 	private nextRef = 1;
-	/** user-turn clock: increments on each user message */
+	/** user-turn clock: derived from the transcript on every context event */
 	turn = 0;
 	/** flag set by the request_compact tool, honored at the turn boundary */
 	compactRequested = false;
@@ -54,7 +58,7 @@ export class SliceState {
 	/** cumulative session spend in USD (survives restarts via session entries) */
 	spendUsd = 0;
 
-	record(toolCallId: string, toolName: string, text: string, isError: boolean): ToolRecord {
+	record(toolCallId: string, toolName: string, text: string, isError: boolean, previewChars = 400): ToolRecord {
 		const existing = this.byId.get(toolCallId);
 		if (existing) return existing;
 		const hash = contentHash(text);
@@ -65,13 +69,21 @@ export class SliceState {
 			toolName,
 			hash,
 			chars: text.length,
+			preview: text.slice(0, previewChars),
 			turn: this.turn,
-			spillPath: dup?.spillPath,
+			spilled: dup?.spilled,
 			isError,
 		};
-		this.byId.set(toolCallId, rec);
-		if (!dup) this.byHash.set(hash, rec);
+		this.index(rec);
 		return rec;
+	}
+
+	private index(rec: ToolRecord): void {
+		this.byId.set(rec.toolCallId, rec);
+		if (!this.byHash.has(rec.hash)) this.byHash.set(rec.hash, rec);
+		const aliases = this.refMap.get(rec.ref);
+		if (aliases) aliases.push(rec);
+		else this.refMap.set(rec.ref, [rec]);
 	}
 
 	get(toolCallId: string): ToolRecord | undefined {
@@ -79,24 +91,38 @@ export class SliceState {
 	}
 
 	byRef(ref: string): ToolRecord | undefined {
-		for (const rec of this.byId.values()) if (rec.ref === ref) return rec;
-		return undefined;
+		return this.refMap.get(ref)?.[0];
+	}
+
+	refs(): Set<string> {
+		return new Set(this.refMap.keys());
 	}
 
 	grantGrace(ref: string, untilTurn: number): void {
-		for (const rec of this.byId.values())
-			if (rec.ref === ref) rec.graceUntilTurn = Math.max(rec.graceUntilTurn ?? 0, untilTurn);
+		this.grace.set(ref, Math.max(this.grace.get(ref) ?? 0, untilTurn));
 	}
 
-	setSpill(toolCallId: string, path: string): void {
+	inGrace(ref: string): boolean {
+		const until = this.grace.get(ref);
+		return until !== undefined && this.turn <= until;
+	}
+
+	setSpilled(toolCallId: string): void {
 		const rec = this.byId.get(toolCallId);
-		if (rec) rec.spillPath = path;
+		if (rec) for (const alias of this.refMap.get(rec.ref) ?? []) alias.spilled = true;
 	}
 
-	serialize(): PersistedIndex {
+	/**
+	 * Persist only records that can still matter after a restart: stub
+	 * candidates (larger than the preview), errors (purge targets), and
+	 * spilled blobs. minChars must equal settings.stubPreviewChars so the
+	 * persistence filter and the stub policy agree.
+	 */
+	serialize(minChars = 400): PersistedIndex {
+		const records = [...this.byId.values()].filter((r) => r.isError || r.spilled || r.chars > minChars);
 		return {
 			nextRef: this.nextRef,
-			records: [...this.byId.values()],
+			records,
 			turn: this.turn,
 			compactRequested: this.compactRequested,
 			bigTaskBudget: this.bigTaskBudget,
@@ -112,20 +138,22 @@ export class SliceState {
 		s.compactRequested = data.compactRequested ?? false;
 		s.bigTaskBudget = data.bigTaskBudget;
 		s.spendUsd = data.spendUsd ?? 0;
-		for (const rec of data.records) {
-			s.byId.set(rec.toolCallId, rec);
-			if (!s.byHash.has(rec.hash)) s.byHash.set(rec.hash, rec);
-		}
+		for (const rec of data.records) s.index({ ...rec, preview: rec.preview ?? "" });
 		return s;
 	}
 }
 
-/** Extract plain text from a toolResult message's content. */
-export function resultText(m: AgentMessage): string {
-	if (typeof m.content === "string") return m.content;
-	if (!Array.isArray(m.content)) return "";
-	return m.content
+/** Join the text blocks of message content into one string. */
+export function textOf(content: AgentMessage["content"]): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
 		.filter((b): b is { type: "text"; text: string } => b.type === "text")
 		.map((b) => b.text)
 		.join("\n");
+}
+
+/** Extract plain text from a message. */
+export function resultText(m: AgentMessage): string {
+	return textOf(m.content);
 }

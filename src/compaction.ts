@@ -10,7 +10,7 @@
  * (docs/compaction.md) so downstream tooling sees a familiar shape.
  */
 
-import type { AgentMessage } from "./pi-types.ts";
+import type { AgentMessage, ToolCallBlock } from "./pi-types.ts";
 import { resultText } from "./state.ts";
 
 export interface CompiledSummary {
@@ -40,7 +40,7 @@ export function compileSummary(
 		if (m.role === "assistant" && Array.isArray(m.content)) {
 			for (const b of m.content) {
 				if (b.type === "toolCall") {
-					const call = b as unknown as { name: string; arguments?: Record<string, unknown> };
+					const call = b as unknown as ToolCallBlock;
 					const path = typeof call.arguments?.path === "string" ? call.arguments.path : undefined;
 					if (path && READ_TOOLS.has(call.name)) readFiles.add(path);
 					if (path && WRITE_TOOLS.has(call.name)) modifiedFiles.add(path);
@@ -74,19 +74,16 @@ export function compileSummary(
 		lines.push("", "## Recent progress (assistant, newest last)");
 		for (const t of recentAssistant.slice(-3)) lines.push(truncate(t, 500));
 	}
-	lines.push("", "<read-files>", ...[...readFiles].sort(), "</read-files>");
-	lines.push("", "<modified-files>", ...[...modifiedFiles].sort(), "</modified-files>");
+	const read = [...readFiles].sort();
+	const modified = [...modifiedFiles].sort();
+	lines.push("", "<read-files>", ...read, "</read-files>");
+	lines.push("", "<modified-files>", ...modified, "</modified-files>");
 
-	return { summary: lines.join("\n"), readFiles: [...readFiles].sort(), modifiedFiles: [...modifiedFiles].sort() };
+	return { summary: lines.join("\n"), readFiles: read, modifiedFiles: modified };
 }
 
 function plainText(m: AgentMessage): string {
-	if (typeof m.content === "string") return m.content.trim();
-	if (!Array.isArray(m.content)) return "";
-	return m.content
-		.filter((b): b is { type: "text"; text: string } => b.type === "text")
-		.map((b) => b.text.trim())
-		.join("\n");
+	return resultText(m).trim();
 }
 
 function truncate(text: string, max: number): string {

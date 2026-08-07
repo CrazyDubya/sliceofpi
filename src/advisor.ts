@@ -8,6 +8,7 @@
 
 import { resolveTier, type SliceSettings, type Tier } from "./config.ts";
 import { fmtTokens, fmtUsd, turnCostUsd } from "./cost.ts";
+import { CHARS_PER_TOKEN, estimateText } from "./tokens.ts";
 
 export interface Advice {
 	tier: Tier;
@@ -40,7 +41,10 @@ export function advise(input: AdvisorInput): Advice {
 
 	// small task on a fat tail: the tail, not the task, is what you'd pay for
 	const smallTaskFatTail =
-		tier !== "quiet" && input.taskEstimateTokens > 0 && input.taskEstimateTokens * 10 < resident;
+		tier !== "quiet" &&
+		tier !== "notice" &&
+		input.taskEstimateTokens > 0 &&
+		input.taskEstimateTokens * 10 < resident;
 
 	if (tier === "headroom" && !big) {
 		notice =
@@ -57,7 +61,7 @@ export function advise(input: AdvisorInput): Advice {
 			`Compacting would save ~${fmtUsd(savings)}/turn; stubbed output stays recoverable via recall. /slice compact when ready.`;
 	}
 
-	if (smallTaskFatTail && (tier === "advise" || tier === "act" || tier === "headroom")) {
+	if (smallTaskFatTail) {
 		const taskShare = turnCostUsd(input.taskEstimateTokens, 0, input.settings);
 		notice =
 			(notice ? `${notice}\n` : "") +
@@ -70,7 +74,5 @@ export function advise(input: AdvisorInput): Advice {
 
 /** Algorithmic incoming-task size estimate: prompt + likely file references. */
 export function estimateTaskTokens(prompt: string, referencedFileSizes: number[]): number {
-	const promptTokens = Math.ceil(prompt.length / 4);
-	const fileTokens = referencedFileSizes.reduce((a, b) => a + Math.ceil(b / 4), 0);
-	return promptTokens + fileTokens;
+	return referencedFileSizes.reduce((a, b) => a + Math.ceil(b / CHARS_PER_TOKEN), estimateText(prompt));
 }

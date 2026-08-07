@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { POKEE_ISAAC_10M, loadSettings } from "../src/config.ts";
 import type { AgentMessage } from "../src/pi-types.ts";
-import { anchorIndex, boundaryStage, capStage, purgeStage, runPipeline, stubStage } from "../src/pipeline.ts";
+import { anchorIndex, boundaryStage, capStage, purgeStage, runPipeline, stubStage, type PipelineInput } from "../src/pipeline.ts";
 import { SliceState, resultText } from "../src/state.ts";
+import type { SliceSettings } from "../src/config.ts";
+
+function input(messages: AgentMessage[], state: SliceState, s: SliceSettings): PipelineInput {
+	return { messages, state, settings: s, anchor: anchorIndex(messages, s.anchorUserMessages) };
+}
 
 function user(text: string): AgentMessage {
 	return { role: "user", content: [{ type: "text", text }] };
@@ -39,7 +44,7 @@ describe("stubStage", () => {
 		const big = "x".repeat(500);
 		const msgs = [user("q1"), assistant("a", [{ id: "c1", name: "bash" }]), toolResult("c1", big), user("q2"), assistant("b", [{ id: "c2", name: "bash" }]), toolResult("c2", big)];
 		const state = buildState(msgs, 2);
-		const out = stubStage({ messages: msgs, state, settings });
+		const out = stubStage(input(msgs, state, settings));
 		expect(resultText(out[2]!)).toContain('recall("t1")');
 		expect(resultText(out[5]!)).toBe(big); // inside anchor: untouched
 	});
@@ -49,14 +54,14 @@ describe("stubStage", () => {
 		const msgs = [user("q1"), assistant("a", [{ id: "c1", name: "bash" }]), toolResult("c1", big), user("q2"), user("q3")];
 		const state = buildState(msgs, 3);
 		state.grantGrace("t1", 5);
-		const out = stubStage({ messages: msgs, state, settings });
+		const out = stubStage(input(msgs, state, settings));
 		expect(resultText(out[2]!)).toBe(big);
 	});
 
 	it("leaves small results inline", () => {
 		const msgs = [user("q1"), assistant("a", [{ id: "c1", name: "bash" }]), toolResult("c1", "tiny"), user("q2")];
 		const state = buildState(msgs, 2);
-		const out = stubStage({ messages: msgs, state, settings });
+		const out = stubStage(input(msgs, state, settings));
 		expect(resultText(out[2]!)).toBe("tiny");
 	});
 });
@@ -72,7 +77,7 @@ describe("purgeStage", () => {
 			user("q4"),
 		];
 		const state = buildState(msgs, 4);
-		const out = purgeStage({ messages: msgs, state, settings });
+		const out = purgeStage(input(msgs, state, settings));
 		const call = (out[1]!.content as any[]).find((b) => b.type === "toolCall");
 		expect(call.arguments._purged).toBeDefined();
 		expect(resultText(out[2]!)).toBe("boom");
@@ -88,7 +93,7 @@ describe("capStage", () => {
 		}
 		const tight = { ...settings, liveTrimCap: 3_000 };
 		const state = buildState(msgs, 10);
-		const out = capStage({ messages: msgs, state, settings: tight });
+		const out = capStage(input(msgs, state, tight));
 		expect(out.length).toBeLessThan(msgs.length);
 		expect(out[0]!.customType).toBe("sliceofpi:trim-marker");
 		// newest turn survives
@@ -98,7 +103,7 @@ describe("capStage", () => {
 	it("no-ops under the cap", () => {
 		const msgs = [user("q"), assistant("a")];
 		const state = buildState(msgs, 1);
-		expect(capStage({ messages: msgs, state, settings })).toEqual(msgs);
+		expect(capStage(input(msgs, state, settings))).toEqual(msgs);
 	});
 });
 
@@ -111,7 +116,7 @@ describe("boundaryStage", () => {
 			toolResult("orphan-result", "??"),
 		];
 		const state = buildState(msgs, 1);
-		const out = boundaryStage({ messages: msgs, state, settings });
+		const out = boundaryStage(input(msgs, state, settings));
 		expect(out.some((m) => m.toolCallId === "orphan-result")).toBe(false);
 		const calls = (out[1]!.content as any[]).filter((b) => b.type === "toolCall");
 		expect(calls.map((c) => c.id)).toEqual(["kept"]);

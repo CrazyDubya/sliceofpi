@@ -12,7 +12,8 @@
 
 export class HealthTracker {
 	private errorRing: boolean[] = [];
-	private textRing: string[] = [];
+	/** trigram sets, computed once per assistant message (score() is per-turn) */
+	private gramsRing: Set<string>[] = [];
 	private readonly ringSize = 5;
 
 	noteToolResult(isError: boolean): void {
@@ -22,8 +23,8 @@ export class HealthTracker {
 
 	noteAssistantText(text: string): void {
 		if (!text) return;
-		this.textRing.push(text);
-		if (this.textRing.length > this.ringSize) this.textRing.shift();
+		this.gramsRing.push(trigrams(text));
+		if (this.gramsRing.length > this.ringSize) this.gramsRing.shift();
 	}
 
 	/** 1 = healthy. Combines repetition, recent error rate, and stuckness drift. */
@@ -42,13 +43,12 @@ export class HealthTracker {
 	 * newest output against history.
 	 */
 	private drift(): number {
-		if (this.textRing.length < 3) return 0;
-		const grams = this.textRing.map((t) => trigrams(t));
+		if (this.gramsRing.length < 3) return 0;
 		let sum = 0;
 		let pairs = 0;
-		for (let i = 0; i < grams.length; i++)
-			for (let j = i + 1; j < grams.length; j++) {
-				sum += jaccard(grams[i]!, grams[j]!);
+		for (let i = 0; i < this.gramsRing.length; i++)
+			for (let j = i + 1; j < this.gramsRing.length; j++) {
+				sum += jaccard(this.gramsRing[i]!, this.gramsRing[j]!);
 				pairs++;
 			}
 		return pairs === 0 ? 0 : sum / pairs;
@@ -56,11 +56,11 @@ export class HealthTracker {
 
 	/** Fraction of trigrams in the newest output already seen in prior outputs. */
 	private repetition(): number {
-		if (this.textRing.length < 2) return 0;
-		const latest = trigrams(this.textRing[this.textRing.length - 1]!);
+		if (this.gramsRing.length < 2) return 0;
+		const latest = this.gramsRing[this.gramsRing.length - 1]!;
 		if (latest.size === 0) return 0;
 		const prior = new Set<string>();
-		for (let i = 0; i < this.textRing.length - 1; i++) for (const g of trigrams(this.textRing[i]!)) prior.add(g);
+		for (let i = 0; i < this.gramsRing.length - 1; i++) for (const g of this.gramsRing[i]!) prior.add(g);
 		let hits = 0;
 		for (const g of latest) if (prior.has(g)) hits++;
 		return hits / latest.size;

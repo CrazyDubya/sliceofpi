@@ -3,9 +3,14 @@
  * Adapted from pi-condense (MIT, https://github.com/jjuraszek/pi-condense —
  * src/spill.ts): blobs live next to the session file so they share its
  * lifecycle.
+ *
+ * SECURITY: blob paths are always DERIVED from (sessionFile, ref) — never
+ * stored, never read from persisted data. A crafted session entry therefore
+ * cannot point recall() at an arbitrary file.
  */
 
-import { mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 export function blobDir(sessionFile: string): string {
@@ -13,12 +18,28 @@ export function blobDir(sessionFile: string): string {
 	return join(dirname(sessionFile), `${id}-blobs`);
 }
 
-export function spill(sessionFile: string, ref: string, text: string): string {
+function blobPath(sessionFile: string, ref: string): string {
+	return join(blobDir(sessionFile), `${ref}.txt`);
+}
+
+/** Async so multi-MB writes never block the event loop mid-turn. */
+export async function spill(sessionFile: string, ref: string, text: string): Promise<void> {
 	const dir = blobDir(sessionFile);
-	mkdirSync(dir, { recursive: true });
-	const path = join(dir, `${ref}.txt`);
-	writeFileSync(path, text, "utf8");
-	return path;
+	await mkdir(dir, { recursive: true });
+	await writeFile(blobPath(sessionFile, ref), text, "utf8");
+}
+
+/** Reads at most maxChars + 1 bytes — never the whole blob. */
+export function readSpill(sessionFile: string, ref: string, maxChars = 60_000): { text: string; truncated: boolean } {
+	const fd = openSync(blobPath(sessionFile, ref), "r");
+	try {
+		const buf = Buffer.alloc(maxChars + 1);
+		const bytes = readSync(fd, buf, 0, buf.length, 0);
+		const truncated = bytes > maxChars;
+		return { text: buf.toString("utf8", 0, Math.min(bytes, maxChars)), truncated };
+	} finally {
+		closeSync(fd);
+	}
 }
 
 /**
@@ -37,8 +58,7 @@ export function gcBlobs(sessionFile: string, liveRefs: Set<string>, maxAgeDays =
 	}
 	const cutoff = Date.now() - maxAgeDays * 86_400_000;
 	for (const name of names) {
-		const ref = name.replace(/\.txt$/, "");
-		if (liveRefs.has(ref)) continue;
+		if (liveRefs.has(name.replace(/\.txt$/, ""))) continue;
 		const path = join(dir, name);
 		try {
 			if (statSync(path).mtimeMs < cutoff) {
@@ -50,10 +70,4 @@ export function gcBlobs(sessionFile: string, liveRefs: Set<string>, maxAgeDays =
 		}
 	}
 	return removed;
-}
-
-export function readSpill(path: string, maxChars = 60_000): { text: string; truncated: boolean } {
-	const full = readFileSync(path, "utf8");
-	if (full.length <= maxChars) return { text: full, truncated: false };
-	return { text: full.slice(0, maxChars), truncated: true };
 }

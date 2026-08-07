@@ -16,14 +16,17 @@ import { statSync } from "node:fs";
 import { advise, estimateTaskTokens, type Advice } from "./advisor.ts";
 import { compileSummary } from "./compaction.ts";
 import { loadSettings, loadSettingsFromDisk, type SliceSettings, type Tier } from "./config.ts";
-import { fmtTokens, fmtUsd } from "./cost.ts";
+import { fmtTokens, fmtUsd, turnCostUsd } from "./cost.ts";
 import { HealthTracker } from "./health.ts";
 import type { AgentMessage, ExtensionAPI, ExtensionContext, SessionEntry } from "./pi-types.ts";
-import { runPipeline } from "./pipeline.ts";
+import { isUserMessage, runPipeline } from "./pipeline.ts";
 import { bm25Search, type SearchDoc } from "./search.ts";
 import { gcBlobs, readSpill, spill } from "./spill.ts";
-import { ENTRY_TYPE, resultText, SliceState, type PersistedIndex } from "./state.ts";
+import { ENTRY_TYPE, resultText, textOf, SliceState, type PersistedIndex } from "./state.ts";
 import { residentTokens } from "./tokens.ts";
+
+const MAX_SEARCH_DOCS = 400;
+const SEARCH_CHARS_PER_DOC = 50_000;
 
 export default function sliceofpi(pi: ExtensionAPI): void {
 	let settings: SliceSettings = loadSettings();
@@ -33,6 +36,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 	const TIER_ORDER: Tier[] = ["quiet", "notice", "advise", "act", "headroom"];
 	let lastNoticedTier: Tier = "quiet";
 	let lastMessages: AgentMessage[] = [];
+	let lastPersisted = "";
 	let lastPreviousSummary: { summary?: string; readFiles?: string[]; modifiedFiles?: string[] } | undefined;
 
 	// ---- restore state from session entries (restart-safe) -----------------
@@ -49,23 +53,20 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		}
 		state = SliceState.restore(persisted);
 		const sessionFile = ctx.sessionManager.getSessionFile();
-		if (sessionFile) {
-			const liveRefs = new Set(state.serialize().records.map((r) => r.ref));
-			gcBlobs(sessionFile, liveRefs);
-		}
+		if (sessionFile) gcBlobs(sessionFile, state.refs());
 		updateFooter(ctx);
 	});
 
 	// ---- L2: index + spill every tool result --------------------------------
 	pi.on("tool_result", async (event, ctx) => {
-		const text = contentText(event.content);
-		state.record(event.toolCallId, event.toolName, text, event.isError === true);
+		const text = textOf(event.content);
+		const rec = state.record(event.toolCallId, event.toolName, text, event.isError === true, settings.stubPreviewChars);
 		health.noteToolResult(event.isError === true);
-		if (text.length > settings.spillThresholdChars) {
+		if (text.length > settings.spillThresholdChars && !rec.spilled) {
 			const sessionFile = ctx.sessionManager.getSessionFile();
 			if (sessionFile) {
-				const rec = state.get(event.toolCallId);
-				if (rec && !rec.spillPath) state.setSpill(event.toolCallId, spill(sessionFile, rec.ref, text));
+				await spill(sessionFile, rec.ref, text);
+				state.setSpilled(event.toolCallId);
 			}
 		}
 	});
@@ -73,23 +74,14 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 	// ---- L1: trim the outbound view on every LLM call -----------------------
 	pi.on("context", async (event, _ctx) => {
 		lastMessages = event.messages;
-		const trimmed = runPipeline({ messages: event.messages, state, settings });
-		return { messages: trimmed };
+		// turn clock derived from the transcript: restart-safe by construction
+		state.turn = event.messages.filter(isUserMessage).length;
+		return { messages: runPipeline({ messages: event.messages, state, settings }) };
 	});
 
 	// ---- L4/L5: task sizing + advice at prompt time -------------------------
 	pi.on("before_agent_start", async (event, ctx) => {
-		state.turn++;
-		const resident = currentResident(ctx);
-		const advice = advise({
-			residentTokens: resident,
-			taskEstimateTokens: estimateTaskTokens(event.prompt ?? "", referencedFileSizes(event.prompt ?? "", ctx.cwd)),
-			sessionSpendUsd: state.spendUsd,
-			health: health.score(),
-			bigTaskBudget: state.bigTaskBudget,
-			compactRequested: state.compactRequested,
-			settings,
-		});
+		const advice = adviseNow(ctx, estimateTaskTokens(event.prompt ?? "", referencedFileSizes(event.prompt ?? "", ctx.cwd)));
 		updateFooter(ctx, advice.footer);
 		deliverNotice(advice, ctx);
 	});
@@ -102,24 +94,22 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		if (typeof cost === "number" && cost > 0) state.spendUsd += cost;
 		else if (m.usage) {
 			const inTok = (m.usage.input ?? 0) + (m.usage.cacheRead ?? 0) + (m.usage.cacheWrite ?? 0);
-			state.spendUsd += (inTok * settings.priceInPerM + (m.usage.output ?? 0) * settings.priceOutPerM) / 1e6;
+			state.spendUsd += turnCostUsd(inTok, m.usage.output ?? 0, settings);
 		}
-		health.noteAssistantText(assistantText(m));
+		health.noteAssistantText(textOf(m.content));
 	});
 
 	// ---- deferred auto-compact at the settled boundary ----------------------
 	pi.on("agent_settled", async (_event, ctx) => {
-		pi.appendEntry(ENTRY_TYPE, state.serialize());
-		const resident = currentResident(ctx);
-		const advice = advise({
-			residentTokens: resident,
-			taskEstimateTokens: 0,
-			sessionSpendUsd: state.spendUsd,
-			health: health.score(),
-			bigTaskBudget: state.bigTaskBudget,
-			compactRequested: state.compactRequested,
-			settings,
-		});
+		// persist only when changed: re-appending an unchanged index every
+		// settle makes the session file grow O(n^2) over a long session
+		const snapshot = state.serialize(settings.stubPreviewChars);
+		const json = JSON.stringify(snapshot);
+		if (json !== lastPersisted) {
+			lastPersisted = json;
+			pi.appendEntry(ENTRY_TYPE, snapshot);
+		}
+		const advice = adviseNow(ctx);
 		updateFooter(ctx, advice.footer);
 		if (advice.shouldCompact && ctx.isIdle()) {
 			state.compactRequested = false;
@@ -133,10 +123,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 	// ---- L3: sole owner of session_before_compact ---------------------------
 	pi.on("session_before_compact", async (event, _ctx) => {
 		const prep = event.preparation;
-		const span: AgentMessage[] = [
-			...(prep?.messagesToSummarize ?? []),
-			...(prep?.turnPrefixMessages ?? []),
-		];
+		const span: AgentMessage[] = [...(prep?.messagesToSummarize ?? []), ...(prep?.turnPrefixMessages ?? [])];
 		const source = span.length > 0 ? span : lastMessages;
 		const compiled = compileSummary(source, lastPreviousSummary ?? prep?.previousSummary);
 		return {
@@ -153,7 +140,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "recall",
 		description:
-			"Retrieve stubbed/hidden context: pass ref (e.g. \"t12\") to fetch a stubbed tool output verbatim, or query to BM25-search all indexed outputs.",
+			'Retrieve stubbed/hidden context: pass ref (e.g. "t12") to fetch a stubbed tool output verbatim, or query to BM25-search all indexed outputs.',
 		parameters: {
 			type: "object",
 			properties: {
@@ -166,11 +153,10 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 				const rec = state.byRef(params.ref.trim());
 				if (!rec) throw new Error(`No record for ${params.ref}`);
 				state.grantGrace(rec.ref, state.turn + settings.recoveryGraceTurns);
-				if (rec.spillPath) {
-					const { text, truncated } = readSpill(rec.spillPath);
-					return {
-						content: [{ type: "text", text: truncated ? `${text}\n[truncated by sliceofpi]` : text }],
-					};
+				const sessionFile = ctx.sessionManager.getSessionFile();
+				if (rec.spilled && sessionFile) {
+					const { text, truncated } = readSpill(sessionFile, rec.ref);
+					return { content: [{ type: "text", text: truncated ? `${text}\n[truncated by sliceofpi]` : text }] };
 				}
 				const inline = findInline(lastMessages, rec.toolCallId);
 				if (inline) return { content: [{ type: "text", text: inline }] };
@@ -179,8 +165,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 				);
 			}
 			if (typeof params.query === "string") {
-				const docs = searchDocs(ctx);
-				const hits = bm25Search(docs, params.query, 5);
+				const hits = bm25Search(searchDocs(ctx), params.query, 5);
 				if (hits.length === 0) return { content: [{ type: "text", text: "No matches." }] };
 				const text = hits.map((h) => `${h.label} (score ${h.score.toFixed(2)})\n${h.excerpt}`).join("\n---\n");
 				return { content: [{ type: "text", text }] };
@@ -195,17 +180,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		description: "Current context usage, tier, and per-turn cost.",
 		parameters: { type: "object", properties: {} },
 		execute: async (_toolCallId, _params, _signal, _onUpdate, ctx) => {
-			const resident = currentResident(ctx);
-			const a = advise({
-				residentTokens: resident,
-				taskEstimateTokens: 0,
-				sessionSpendUsd: state.spendUsd,
-				health: health.score(),
-				bigTaskBudget: state.bigTaskBudget,
-				compactRequested: state.compactRequested,
-				settings,
-			});
-			return { content: [{ type: "text", text: a.footer }] };
+			return { content: [{ type: "text", text: adviseNow(ctx).footer }] };
 		},
 	});
 
@@ -213,7 +188,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		name: "request_compact",
 		description: "Request compaction; it fires at the next turn boundary (never mid-turn).",
 		parameters: { type: "object", properties: {} },
-		execute: async (_toolCallId, _params, _signal, _onUpdate, _ctx) => {
+		execute: async () => {
 			state.compactRequested = true;
 			return { content: [{ type: "text", text: "Compaction scheduled for the next turn boundary." }] };
 		},
@@ -225,10 +200,9 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const [cmd, arg] = args.trim().split(/\s+/);
 			if (!cmd || cmd === "status") {
-				const resident = currentResident(ctx);
 				ctx.ui.notify(
-					`sliceofpi ${settings.profile}: ${fmtTokens(resident)} resident | spent ${fmtUsd(state.spendUsd)} | ` +
-						`mode ${state.bigTaskBudget ? `big(${fmtTokens(state.bigTaskBudget)})` : "normal"} | auto ${settings.autoCompact ? "on" : "off"} | health ${health.score().toFixed(2)}`,
+					`sliceofpi ${settings.profile}: ${fmtTokens(currentResident(ctx))} resident | spent ${fmtUsd(state.spendUsd)} | ` +
+						`mode ${modeLabel()} | auto ${settings.autoCompact ? "on" : "off"} | health ${health.score().toFixed(2)}`,
 					"info",
 				);
 			} else if (cmd === "compact") {
@@ -251,17 +225,32 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 
 	// ---- helpers ------------------------------------------------------------
 
+	function adviseNow(ctx: ExtensionContext, taskEstimateTokens = 0): Advice {
+		return advise({
+			residentTokens: currentResident(ctx),
+			taskEstimateTokens,
+			sessionSpendUsd: state.spendUsd,
+			health: health.score(),
+			bigTaskBudget: state.bigTaskBudget,
+			compactRequested: state.compactRequested,
+			settings,
+		});
+	}
+
 	function currentResident(ctx: ExtensionContext): number {
 		const usage = ctx.getContextUsage();
 		lastResident = usage?.tokens ?? (lastMessages.length > 0 ? residentTokens(lastMessages) : lastResident);
 		return lastResident;
 	}
 
+	function modeLabel(): string {
+		return state.bigTaskBudget ? `big(${fmtTokens(state.bigTaskBudget)})` : "normal";
+	}
+
 	function updateFooter(ctx: ExtensionContext, text?: string): void {
 		const line = text ?? `sliceofpi ${settings.profile}`;
 		if (ctx.ui.setWidget) {
-			const mode = state.bigTaskBudget ? `big(${fmtTokens(state.bigTaskBudget)})` : "normal";
-			ctx.ui.setWidget("sliceofpi", [line, `mode ${mode} | auto-compact ${settings.autoCompact ? "on" : "off"}`]);
+			ctx.ui.setWidget("sliceofpi", [line, `mode ${modeLabel()} | auto-compact ${settings.autoCompact ? "on" : "off"}`]);
 		} else {
 			ctx.ui.setStatus("sliceofpi", line);
 		}
@@ -277,10 +266,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		lastNoticedTier = advice.tier;
 		if (!advice.notice) return;
 		if (escalated && (advice.tier === "act" || advice.tier === "headroom") && pi.sendMessage) {
-			pi.sendMessage(
-				{ customType: "sliceofpi:advice", content: advice.notice, display: true },
-				{ deliverAs: "nextTurn" },
-			);
+			pi.sendMessage({ customType: "sliceofpi:advice", content: advice.notice, display: true }, { deliverAs: "nextTurn" });
 		} else {
 			ctx.ui.notify(advice.notice, advice.tier === "advise" ? "info" : "warn");
 		}
@@ -288,39 +274,29 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 
 	function searchDocs(ctx: ExtensionContext): SearchDoc[] {
 		const docs: SearchDoc[] = [];
+		const sessionFile = ctx.sessionManager.getSessionFile();
 		const entries = ctx.sessionManager.getBranchEntries?.() ?? ctx.sessionManager.getEntries?.() ?? [];
-		for (const e of entries as SessionEntry[]) {
+		// newest first, bounded: keeps search memory O(MAX_DOCS * SEARCH_CHARS)
+		for (const e of (entries as SessionEntry[]).slice().reverse()) {
+			if (docs.length >= MAX_SEARCH_DOCS) break;
 			const m = e.message;
 			if (!m || m.role !== "toolResult" || !m.toolCallId) continue;
 			const rec = state.get(m.toolCallId);
-			const text = rec?.spillPath ? readSpill(rec.spillPath, 200_000).text : resultText(m);
+			let text: string;
+			try {
+				text = rec?.spilled && sessionFile ? readSpill(sessionFile, rec.ref, SEARCH_CHARS_PER_DOC).text : resultText(m);
+			} catch {
+				continue; // spill file deleted externally
+			}
 			if (!text) continue;
 			docs.push({
 				id: rec?.ref ?? e.id,
 				label: rec ? `${rec.ref} (${rec.toolName}, turn ${rec.turn})` : e.id,
-				text,
+				text: text.slice(0, SEARCH_CHARS_PER_DOC),
 			});
 		}
 		return docs;
 	}
-}
-
-function contentText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter((b): b is { type: "text"; text: string } => (b as { type?: string }).type === "text")
-		.map((b) => b.text)
-		.join("\n");
-}
-
-function assistantText(m: AgentMessage): string {
-	if (typeof m.content === "string") return m.content;
-	if (!Array.isArray(m.content)) return "";
-	return m.content
-		.filter((b): b is { type: "text"; text: string } => b.type === "text")
-		.map((b) => b.text)
-		.join("\n");
 }
 
 function findInline(messages: AgentMessage[], toolCallId: string): string | undefined {

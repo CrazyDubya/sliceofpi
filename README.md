@@ -146,6 +146,26 @@ Preliminary caveats: single repeat per arm, one task family, one model.
 Planned: k≥3 repeats, funded completion of the big-tail stock arm, and
 degradation-sensitive quality probes.
 
+## Safety & privacy
+
+- **No network calls, no telemetry.** The extension touches only your session
+  files and its blob sidecar directory; the only LLM traffic is what Pi itself
+  sends.
+- **Spilled outputs live on disk unencrypted** in
+  `<sessionDir>/<sessionId>-blobs/` — the same exposure as Pi's session JSONL,
+  which already stores every tool output in full. Blob paths are always
+  derived from the session file and ref, never read from stored data, so a
+  crafted or imported session file cannot point `recall` at arbitrary files.
+- **Orphaned blobs are garbage-collected** after 7 days; blobs still
+  referenced by the index are kept (they back `recall`).
+- **Single compaction owner**: don't install another compaction extension
+  (pi-condense, pi-observational-memory, pi-blackhole, ...) alongside
+  sliceofpi — `session_before_compact` handlers conflict, and both will fight
+  over the same tool names (`recall`).
+- Cost figures are computed from provider-reported usage where available and
+  chars/4 estimates otherwise — treat them as accurate-to-a-few-percent, not
+  billing-grade.
+
 ## Development
 
 ```bash

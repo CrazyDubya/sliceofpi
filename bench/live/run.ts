@@ -9,14 +9,15 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { POKEE_ISAAC_10M } from "../../src/config.ts";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../..");
 const PI_BIN = "/opt/homebrew/bin/pi";
-const PRICE_IN = 0.15 / 1e6;
-const PRICE_OUT = 1.0 / 1e6;
+const PRICE_IN = POKEE_ISAAC_10M.priceInPerM / 1e6;
+const PRICE_OUT = POKEE_ISAAC_10M.priceOutPerM / 1e6;
 const EPISODE_BUDGET_USD = 1.4;
 const GLOBAL_BUDGET_USD = 1.85;
 const PROMPT_TIMEOUT_MS = 300_000;

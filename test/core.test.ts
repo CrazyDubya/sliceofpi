@@ -91,12 +91,21 @@ describe("SliceState", () => {
 	it("dedups identical content to one ref and survives serialize/restore", () => {
 		const st = new SliceState();
 		st.turn = 3;
-		const a = st.record("id1", "bash", "same-output", false);
-		const b = st.record("id2", "bash", "same-output", false);
+		const big = "same-output ".repeat(50); // >400 chars: stub-eligible, so persisted
+		const a = st.record("id1", "bash", big, false);
+		const b = st.record("id2", "bash", big, false);
 		expect(a.ref).toBe(b.ref);
 		const restored = SliceState.restore(st.serialize());
 		expect(restored.get("id2")?.ref).toBe(a.ref);
 		expect(restored.turn).toBe(3);
+	});
+
+	it("drops tiny clean records from persistence but keeps errors", () => {
+		const st = new SliceState();
+		st.record("small", "bash", "ok", false);
+		st.record("err", "bash", "boom", true);
+		const persisted = st.serialize();
+		expect(persisted.records.map((r) => r.toolCallId)).toEqual(["err"]);
 	});
 
 	it("persists mode, compact request, and spend across restore", () => {

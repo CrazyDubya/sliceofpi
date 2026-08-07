@@ -19,7 +19,7 @@ export interface Usage {
 	cacheRead?: number;
 	cacheWrite?: number;
 	totalTokens?: number;
-	cost?: { input?: number; output?: number; total?: number };
+	cost?: { total?: number };
 }
 
 export interface ToolCallBlock {
@@ -56,29 +56,24 @@ export interface SessionEntry {
 export interface ContextUsage {
 	tokens: number | null;
 	contextWindow: number;
-	percent?: number | null;
 }
 
 export interface UiApi {
 	notify(text: string, level?: "info" | "warn" | "error"): void;
 	setStatus(key: string, text: string | undefined): void;
 	setWidget?(key: string, lines: string[] | undefined): void;
-	confirm?(title: string, body?: string): Promise<boolean>;
 }
 
 export interface SessionManagerApi {
 	getSessionFile(): string | undefined;
-	getSessionId?(): string;
 	getEntries?(): SessionEntry[];
 	getBranchEntries?(): SessionEntry[];
 }
 
 export interface ExtensionContext {
 	ui: UiApi;
-	hasUI: boolean;
 	cwd: string;
 	sessionManager: SessionManagerApi;
-	model?: { id?: string; contextWindow?: number; maxTokens?: number };
 	getContextUsage(): ContextUsage | undefined;
 	compact(opts?: {
 		customInstructions?: string;
@@ -86,7 +81,6 @@ export interface ExtensionContext {
 		onError?: (error: Error) => void;
 	}): void;
 	isIdle(): boolean;
-	signal?: AbortSignal;
 }
 
 export interface ToolResultReturn {
