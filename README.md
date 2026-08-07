@@ -1,4 +1,28 @@
+```text
+                   ~           ~
+               (       ~   )       ~
+                 )   (       (   )
+             __..-~~~~~~~~~~~~~-..__
+          ,-~    .--.  .--.  .--.   ~-.
+         /      (    )(    )(    )     \             ___
+        |        `--'  `--'  `--'       |           /  ~\
+        |             ______            |          / π   \
+        |              |  |             |         /___,___\
+         \             |  |            /
+          `-.         _|  |_        ,-'          one slice,
+             ~-..______________..-~               to go
+
+              s l i c e   o f   π
+
+     10,000,000 tokens in the tin — pay for a slice
+```
+
 # sliceofpi
+
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![tests](https://img.shields.io/badge/tests-27%20passing-brightgreen.svg)](test/)
+[![pi extension](https://img.shields.io/badge/pi-extension-8A2BE2.svg)](https://github.com/earendil-works/pi)
+[![model](https://img.shields.io/badge/tuned%20for-Pokee--Isaac%2010M-orange.svg)](https://console.pokee.ai/model)
 
 Context management for the [Pi coding agent](https://github.com/earendil-works/pi)
 on 10M-token-context models — built for
