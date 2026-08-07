@@ -17,7 +17,8 @@ const REPO = resolve(HERE, "../..");
 const PI_BIN = "/opt/homebrew/bin/pi";
 const PRICE_IN = 0.15 / 1e6;
 const PRICE_OUT = 1.0 / 1e6;
-const EPISODE_BUDGET_USD = 0.75;
+const EPISODE_BUDGET_USD = 1.0;
+const GLOBAL_BUDGET_USD = 2.2;
 const PROMPT_TIMEOUT_MS = 300_000;
 
 interface Task {
@@ -43,6 +44,34 @@ const TASKS: Task[] = [
 			"Implement slugify in slug.js so `node --test slug.test.js` passes. Do NOT modify slug.test.js. Run the tests to confirm.",
 		],
 		verify: (wd) => spawnSync("node", ["--test", "slug.test.js"], { cwd: wd }).status === 0,
+	},
+	{
+		id: "t4-fattail",
+		kind: "longtail",
+		prompts: [
+			"Run `node gen-logs.js > run1.log 2>&1` then read run1.log fully (page through all of it) and summarize the deploy in one paragraph.",
+			"Run `node gen-logs.js > run2.log` and `cat run1.log run2.log | sort > merged.log`, then read merged.log and tell me the total line count and time range covered.",
+			"Read mathx.js, mathx.test.js, slug.js, and slug.test.js in full and describe each file's purpose in one line.",
+			"Run `node -e \"console.log(6*7)\"` and tell me the result.",
+			"What is the capital of France? One word answer.",
+			"Run `node -e \"console.log(process.version)\"` and report the version.",
+			"List the files in this directory with `ls -la` and tell me how many there are.",
+			"Run `node -e \"console.log([3,1,2].sort())\"` and report the output.",
+			"What does HTTP status 418 mean? One sentence.",
+			"Run `date` and tell me the weekday.",
+			"Run `node -e \"console.log('ok')\"` and confirm it printed ok.",
+			"From the deploy log you reviewed at the start: write the exact value of deploy_key_fingerprint (just the value) to answer.txt.",
+			"Fix the bug in mathx.js so `node --test mathx.test.js` passes without modifying the test file, and re-run the tests to confirm.",
+		],
+		verify: (wd) => {
+			let ok = true;
+			try {
+				ok = readFileSync(join(wd, "answer.txt"), "utf8").includes("XJ4-QQ7-ZZ9-PK2");
+			} catch {
+				ok = false;
+			}
+			return ok && spawnSync("node", ["--test", "mathx.test.js"], { cwd: wd }).status === 0;
+		},
 	},
 	{
 		id: "t3-longtail",
@@ -76,6 +105,7 @@ interface EpisodeResult {
 	seconds: number;
 	overBudget: boolean;
 	aborts: number;
+	perPrompt: { prompt: number; inputDelta: number; usd: number }[];
 	error?: string;
 }
 
@@ -155,6 +185,7 @@ async function runEpisode(task: Task, arm: "a" | "b", repeat: number, outDir: st
 	let outputTokens = 0;
 	let overBudget = false;
 	let aborts = 0;
+	const perPrompt: { prompt: number; inputDelta: number; usd: number }[] = [];
 	let error: string | undefined;
 
 	try {
@@ -174,9 +205,12 @@ async function runEpisode(task: Task, arm: "a" | "b", repeat: number, outDir: st
 			rpc.send({ id: `s${i}`, type: "get_session_stats" });
 			const stats = await rpc.waitFor((o) => o.type === "response" && o.id === `s${i}`, 30_000);
 			const tok = stats.data?.tokens ?? {};
+			const prevIn = inputTokens;
+			const prevUsd = usd;
 			inputTokens = (tok.input ?? 0) + (tok.cacheRead ?? 0) + (tok.cacheWrite ?? 0);
 			outputTokens = tok.output ?? 0;
 			usd = inputTokens * PRICE_IN + outputTokens * PRICE_OUT;
+			perPrompt.push({ prompt: i, inputDelta: inputTokens - prevIn, usd: usd - prevUsd });
 			if (usd > EPISODE_BUDGET_USD) {
 				overBudget = true;
 				break;
@@ -204,6 +238,7 @@ async function runEpisode(task: Task, arm: "a" | "b", repeat: number, outDir: st
 		seconds: Math.round((Date.now() - started) / 1000),
 		overBudget,
 		aborts,
+		perPrompt,
 		error,
 	};
 }
@@ -228,12 +263,18 @@ const outDir = join(HERE, "results");
 mkdirSync(outDir, { recursive: true });
 
 const results: EpisodeResult[] = [];
-for (let r = 0; r < repeats; r++) {
+let globalSpend = 0;
+outer: for (let r = 0; r < repeats; r++) {
 	for (const task of TASKS.filter((t) => taskIds.includes(t.id))) {
 		for (const arm of arms) {
+			if (globalSpend >= GLOBAL_BUDGET_USD) {
+				console.log(`global budget \$${GLOBAL_BUDGET_USD} reached; stopping`);
+				break outer;
+			}
 			process.stdout.write(`running ${task.id} arm=${arm} repeat=${r} ... `);
 			const res = await runEpisode(task, arm, r, outDir);
 			results.push(res);
+			globalSpend += res.usd;
 			console.log(
 				res.error
 					? `ERROR (${res.error.slice(0, 120)})`

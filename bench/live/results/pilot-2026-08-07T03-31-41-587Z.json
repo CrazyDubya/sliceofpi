@@ -1,0 +1,164 @@
+[
+  {
+    "task": "t4-fattail",
+    "kind": "longtail",
+    "arm": "a",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.44872695,
+    "inputTokens": 2969413,
+    "outputTokens": 3315,
+    "turns": 33,
+    "seconds": 165,
+    "overBudget": false,
+    "aborts": 0,
+    "perPrompt": [
+      {
+        "prompt": 0,
+        "inputDelta": 203991,
+        "usd": 0.031214649999999997
+      },
+      {
+        "prompt": 1,
+        "inputDelta": 575509,
+        "usd": 0.08716535
+      },
+      {
+        "prompt": 2,
+        "inputDelta": 194883,
+        "usd": 0.029527449999999997
+      },
+      {
+        "prompt": 3,
+        "inputDelta": 196435,
+        "usd": 0.029546249999999996
+      },
+      {
+        "prompt": 4,
+        "inputDelta": 98364,
+        "usd": 0.014790600000000015
+      },
+      {
+        "prompt": 5,
+        "inputDelta": 197083,
+        "usd": 0.029679449999999996
+      },
+      {
+        "prompt": 6,
+        "inputDelta": 197926,
+        "usd": 0.02992789999999998
+      },
+      {
+        "prompt": 7,
+        "inputDelta": 199057,
+        "usd": 0.02994754999999999
+      },
+      {
+        "prompt": 8,
+        "inputDelta": 99685,
+        "usd": 0.01517075000000001
+      },
+      {
+        "prompt": 9,
+        "inputDelta": 200054,
+        "usd": 0.030076099999999995
+      },
+      {
+        "prompt": 10,
+        "inputDelta": 200495,
+        "usd": 0.030151249999999963
+      },
+      {
+        "prompt": 11,
+        "inputDelta": 201076,
+        "usd": 0.030365400000000042
+      },
+      {
+        "prompt": 12,
+        "inputDelta": 404855,
+        "usd": 0.06116425000000003
+      }
+    ]
+  },
+  {
+    "task": "t4-fattail",
+    "kind": "longtail",
+    "arm": "b",
+    "repeat": 0,
+    "success": true,
+    "usd": 0.1349803,
+    "inputTokens": 878142,
+    "outputTokens": 3259,
+    "turns": 34,
+    "seconds": 75,
+    "overBudget": false,
+    "aborts": 0,
+    "perPrompt": [
+      {
+        "prompt": 0,
+        "inputDelta": 205135,
+        "usd": 0.03151125
+      },
+      {
+        "prompt": 1,
+        "inputDelta": 480936,
+        "usd": 0.07261139999999999
+      },
+      {
+        "prompt": 2,
+        "inputDelta": 11234,
+        "usd": 0.0019851000000000035
+      },
+      {
+        "prompt": 3,
+        "inputDelta": 12829,
+        "usd": 0.001997349999999995
+      },
+      {
+        "prompt": 4,
+        "inputDelta": 6509,
+        "usd": 0.001000349999999997
+      },
+      {
+        "prompt": 5,
+        "inputDelta": 13324,
+        "usd": 0.002089599999999997
+      },
+      {
+        "prompt": 6,
+        "inputDelta": 14128,
+        "usd": 0.002400200000000005
+      },
+      {
+        "prompt": 7,
+        "inputDelta": 15357,
+        "usd": 0.0025355500000000114
+      },
+      {
+        "prompt": 8,
+        "inputDelta": 7900,
+        "usd": 0.0012829999999999786
+      },
+      {
+        "prompt": 9,
+        "inputDelta": 16240,
+        "usd": 0.0025140000000000162
+      },
+      {
+        "prompt": 10,
+        "inputDelta": 16714,
+        "usd": 0.002581100000000003
+      },
+      {
+        "prompt": 11,
+        "inputDelta": 26126,
+        "usd": 0.004121899999999984
+      },
+      {
+        "prompt": 12,
+        "inputDelta": 51710,
+        "usd": 0.00834950000000001
+      }
+    ]
+  }
+]
