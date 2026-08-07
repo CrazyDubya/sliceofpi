@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 /**
  * Settings and the pokee-isaac-10m profile. All thresholds are ABSOLUTE
  * tokens: percent-of-window logic is rejected by design (DESIGN.md, L4).
@@ -78,4 +80,36 @@ function clamp01(x: number): number {
 /** Merge user overrides (from settings.json `sliceofpi` key) onto the profile. */
 export function loadSettings(overrides?: Partial<SliceSettings>): SliceSettings {
 	return { ...POKEE_ISAAC_10M, ...overrides, tiers: { ...POKEE_ISAAC_10M.tiers, ...overrides?.tiers } };
+}
+
+/**
+ * Read user overrides from Pi's settings files: the `sliceofpi` key of
+ * ~/.pi/agent/settings.json, then <project>/.pi/settings.json (project wins).
+ */
+export function loadSettingsFromDisk(
+	cwd: string,
+	readFile: (path: string) => string | undefined = defaultReadFile,
+	home: string = process.env.HOME ?? "",
+): SliceSettings {
+	let merged: Partial<SliceSettings> = {};
+	for (const path of [`${home}/.pi/agent/settings.json`, `${cwd}/.pi/settings.json`]) {
+		const raw = readFile(path);
+		if (!raw) continue;
+		try {
+			const overrides = (JSON.parse(raw) as { sliceofpi?: Partial<SliceSettings> }).sliceofpi;
+			if (overrides && typeof overrides === "object")
+				merged = { ...merged, ...overrides, tiers: { ...merged.tiers, ...overrides.tiers } as TierThresholds };
+		} catch {
+			// malformed settings file: ignore, keep defaults
+		}
+	}
+	return loadSettings(merged);
+}
+
+function defaultReadFile(path: string): string | undefined {
+	try {
+		return readFileSync(path, "utf8");
+	} catch {
+		return undefined;
+	}
 }

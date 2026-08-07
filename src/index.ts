@@ -13,15 +13,15 @@
  */
 
 import { statSync } from "node:fs";
-import { advise, estimateTaskTokens } from "./advisor.ts";
+import { advise, estimateTaskTokens, type Advice } from "./advisor.ts";
 import { compileSummary } from "./compaction.ts";
-import { loadSettings, type SliceSettings } from "./config.ts";
+import { loadSettings, loadSettingsFromDisk, type SliceSettings, type Tier } from "./config.ts";
 import { fmtTokens, fmtUsd } from "./cost.ts";
 import { HealthTracker } from "./health.ts";
 import type { AgentMessage, ExtensionAPI, ExtensionContext, SessionEntry } from "./pi-types.ts";
 import { runPipeline } from "./pipeline.ts";
 import { bm25Search, type SearchDoc } from "./search.ts";
-import { readSpill, spill } from "./spill.ts";
+import { gcBlobs, readSpill, spill } from "./spill.ts";
 import { ENTRY_TYPE, resultText, SliceState, type PersistedIndex } from "./state.ts";
 import { residentTokens } from "./tokens.ts";
 
@@ -29,13 +29,15 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 	let settings: SliceSettings = loadSettings();
 	let state = new SliceState();
 	const health = new HealthTracker();
-	let sessionSpendUsd = 0;
 	let lastResident = 0;
+	const TIER_ORDER: Tier[] = ["quiet", "notice", "advise", "act", "headroom"];
+	let lastNoticedTier: Tier = "quiet";
 	let lastMessages: AgentMessage[] = [];
 	let lastPreviousSummary: { summary?: string; readFiles?: string[]; modifiedFiles?: string[] } | undefined;
 
 	// ---- restore state from session entries (restart-safe) -----------------
 	pi.on("session_start", async (_event, ctx) => {
+		settings = loadSettingsFromDisk(ctx.cwd);
 		const entries = ctx.sessionManager.getBranchEntries?.() ?? ctx.sessionManager.getEntries?.() ?? [];
 		let persisted: PersistedIndex | undefined;
 		for (const e of entries) {
@@ -46,6 +48,11 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 			}
 		}
 		state = SliceState.restore(persisted);
+		const sessionFile = ctx.sessionManager.getSessionFile();
+		if (sessionFile) {
+			const liveRefs = new Set(state.serialize().records.map((r) => r.ref));
+			gcBlobs(sessionFile, liveRefs);
+		}
 		updateFooter(ctx);
 	});
 
@@ -77,14 +84,14 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		const advice = advise({
 			residentTokens: resident,
 			taskEstimateTokens: estimateTaskTokens(event.prompt ?? "", referencedFileSizes(event.prompt ?? "", ctx.cwd)),
-			sessionSpendUsd,
+			sessionSpendUsd: state.spendUsd,
 			health: health.score(),
 			bigTaskBudget: state.bigTaskBudget,
 			compactRequested: state.compactRequested,
 			settings,
 		});
 		updateFooter(ctx, advice.footer);
-		if (advice.notice) ctx.ui.notify(advice.notice, advice.tier === "advise" ? "info" : "warn");
+		deliverNotice(advice, ctx);
 	});
 
 	// ---- track spend + health from assistant messages -----------------------
@@ -92,10 +99,10 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		const m = event.message as AgentMessage;
 		if (m.role !== "assistant") return;
 		const cost = m.usage?.cost?.total;
-		if (typeof cost === "number") sessionSpendUsd += cost;
+		if (typeof cost === "number" && cost > 0) state.spendUsd += cost;
 		else if (m.usage) {
 			const inTok = (m.usage.input ?? 0) + (m.usage.cacheRead ?? 0) + (m.usage.cacheWrite ?? 0);
-			sessionSpendUsd += (inTok * settings.priceInPerM + (m.usage.output ?? 0) * settings.priceOutPerM) / 1e6;
+			state.spendUsd += (inTok * settings.priceInPerM + (m.usage.output ?? 0) * settings.priceOutPerM) / 1e6;
 		}
 		health.noteAssistantText(assistantText(m));
 	});
@@ -107,7 +114,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		const advice = advise({
 			residentTokens: resident,
 			taskEstimateTokens: 0,
-			sessionSpendUsd,
+			sessionSpendUsd: state.spendUsd,
 			health: health.score(),
 			bigTaskBudget: state.bigTaskBudget,
 			compactRequested: state.compactRequested,
@@ -192,7 +199,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 			const a = advise({
 				residentTokens: resident,
 				taskEstimateTokens: 0,
-				sessionSpendUsd,
+				sessionSpendUsd: state.spendUsd,
 				health: health.score(),
 				bigTaskBudget: state.bigTaskBudget,
 				compactRequested: state.compactRequested,
@@ -220,7 +227,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 			if (!cmd || cmd === "status") {
 				const resident = currentResident(ctx);
 				ctx.ui.notify(
-					`sliceofpi ${settings.profile}: ${fmtTokens(resident)} resident | spent ${fmtUsd(sessionSpendUsd)} | ` +
+					`sliceofpi ${settings.profile}: ${fmtTokens(resident)} resident | spent ${fmtUsd(state.spendUsd)} | ` +
 						`mode ${state.bigTaskBudget ? `big(${fmtTokens(state.bigTaskBudget)})` : "normal"} | auto ${settings.autoCompact ? "on" : "off"} | health ${health.score().toFixed(2)}`,
 					"info",
 				);
@@ -251,7 +258,32 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 	}
 
 	function updateFooter(ctx: ExtensionContext, text?: string): void {
-		ctx.ui.setStatus("sliceofpi", text ?? `sliceofpi ${settings.profile}`);
+		const line = text ?? `sliceofpi ${settings.profile}`;
+		if (ctx.ui.setWidget) {
+			const mode = state.bigTaskBudget ? `big(${fmtTokens(state.bigTaskBudget)})` : "normal";
+			ctx.ui.setWidget("sliceofpi", [line, `mode ${mode} | auto-compact ${settings.autoCompact ? "on" : "off"}`]);
+		} else {
+			ctx.ui.setStatus("sliceofpi", line);
+		}
+	}
+
+	/**
+	 * Advisory delivery: tier escalations to act/headroom go into the session
+	 * as a visible message at the next turn boundary (deliverAs "nextTurn"),
+	 * so both the user AND the model see them; everything else is a UI notify.
+	 */
+	function deliverNotice(advice: Advice, ctx: ExtensionContext): void {
+		const escalated = TIER_ORDER.indexOf(advice.tier) > TIER_ORDER.indexOf(lastNoticedTier);
+		lastNoticedTier = advice.tier;
+		if (!advice.notice) return;
+		if (escalated && (advice.tier === "act" || advice.tier === "headroom") && pi.sendMessage) {
+			pi.sendMessage(
+				{ customType: "sliceofpi:advice", content: advice.notice, display: true },
+				{ deliverAs: "nextTurn" },
+			);
+		} else {
+			ctx.ui.notify(advice.notice, advice.tier === "advise" ? "info" : "warn");
+		}
 	}
 
 	function searchDocs(ctx: ExtensionContext): SearchDoc[] {

@@ -97,7 +97,7 @@ export const purgeStage: Stage = ({ messages, state, settings }) => {
  * estimate fits liveTrimCap, then insert a synthetic marker. Durable
  * truncation is compaction's job, not this stage's.
  */
-export const capStage: Stage = ({ messages, state, settings }) => {
+export const capStage: Stage = ({ messages, settings }) => {
 	let total = 0;
 	const sizes = messages.map((m) => {
 		const t = estimateMessage(m);
@@ -128,7 +128,6 @@ export const capStage: Stage = ({ messages, state, settings }) => {
 			},
 		],
 	};
-	void state;
 	return [marker, ...messages.slice(dropUpTo)];
 };
 

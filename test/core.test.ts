@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { advise, estimateTaskTokens } from "../src/advisor.ts";
 import { compileSummary } from "../src/compaction.ts";
-import { POKEE_ISAAC_10M, loadSettings, resolveTier } from "../src/config.ts";
+import { POKEE_ISAAC_10M, loadSettings, loadSettingsFromDisk, resolveTier } from "../src/config.ts";
 import { turnCostUsd } from "../src/cost.ts";
 import { HealthTracker } from "../src/health.ts";
 import type { AgentMessage } from "../src/pi-types.ts";
@@ -98,6 +98,17 @@ describe("SliceState", () => {
 		expect(restored.get("id2")?.ref).toBe(a.ref);
 		expect(restored.turn).toBe(3);
 	});
+
+	it("persists mode, compact request, and spend across restore", () => {
+		const st = new SliceState();
+		st.bigTaskBudget = 2_000_000;
+		st.compactRequested = true;
+		st.spendUsd = 1.23;
+		const restored = SliceState.restore(st.serialize());
+		expect(restored.bigTaskBudget).toBe(2_000_000);
+		expect(restored.compactRequested).toBe(true);
+		expect(restored.spendUsd).toBeCloseTo(1.23);
+	});
 });
 
 describe("compileSummary", () => {
@@ -156,5 +167,23 @@ describe("loadSettings", () => {
 		const merged = loadSettings({ tiers: { ...POKEE_ISAAC_10M.tiers, act: 999 } });
 		expect(merged.tiers.act).toBe(999);
 		expect(merged.tiers.notice).toBe(POKEE_ISAAC_10M.tiers.notice);
+	});
+});
+
+describe("loadSettingsFromDisk", () => {
+	it("merges sliceofpi keys with project settings winning over global", () => {
+		const files: Record<string, string> = {
+			"/home/.pi/agent/settings.json": JSON.stringify({ sliceofpi: { autoCompact: false, liveTrimCap: 111 } }),
+			"/proj/.pi/settings.json": JSON.stringify({ sliceofpi: { liveTrimCap: 222 } }),
+		};
+		const s = loadSettingsFromDisk("/proj", (p) => files[p], "/home");
+		expect(s.autoCompact).toBe(false); // from global
+		expect(s.liveTrimCap).toBe(222); // project wins
+		expect(s.tiers.act).toBe(POKEE_ISAAC_10M.tiers.act); // defaults intact
+	});
+
+	it("ignores malformed files and missing keys", () => {
+		const s = loadSettingsFromDisk("/proj", (p) => (p.includes("agent") ? "{not json" : undefined), "/home");
+		expect(s).toEqual(POKEE_ISAAC_10M);
 	});
 });

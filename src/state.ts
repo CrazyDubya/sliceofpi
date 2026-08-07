@@ -30,6 +30,9 @@ export interface PersistedIndex {
 	nextRef: number;
 	records: ToolRecord[];
 	turn: number;
+	compactRequested?: boolean;
+	bigTaskBudget?: number;
+	spendUsd?: number;
 }
 
 export const ENTRY_TYPE = "sliceofpi:index";
@@ -48,6 +51,8 @@ export class SliceState {
 	compactRequested = false;
 	/** big-task mode budget in tokens; undefined = normal mode */
 	bigTaskBudget: number | undefined;
+	/** cumulative session spend in USD (survives restarts via session entries) */
+	spendUsd = 0;
 
 	record(toolCallId: string, toolName: string, text: string, isError: boolean): ToolRecord {
 		const existing = this.byId.get(toolCallId);
@@ -89,7 +94,14 @@ export class SliceState {
 	}
 
 	serialize(): PersistedIndex {
-		return { nextRef: this.nextRef, records: [...this.byId.values()], turn: this.turn };
+		return {
+			nextRef: this.nextRef,
+			records: [...this.byId.values()],
+			turn: this.turn,
+			compactRequested: this.compactRequested,
+			bigTaskBudget: this.bigTaskBudget,
+			spendUsd: this.spendUsd,
+		};
 	}
 
 	static restore(data: PersistedIndex | undefined): SliceState {
@@ -97,6 +109,9 @@ export class SliceState {
 		if (!data) return s;
 		s.nextRef = data.nextRef;
 		s.turn = data.turn;
+		s.compactRequested = data.compactRequested ?? false;
+		s.bigTaskBudget = data.bigTaskBudget;
+		s.spendUsd = data.spendUsd ?? 0;
 		for (const rec of data.records) {
 			s.byId.set(rec.toolCallId, rec);
 			if (!s.byHash.has(rec.hash)) s.byHash.set(rec.hash, rec);

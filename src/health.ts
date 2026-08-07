@@ -26,11 +26,32 @@ export class HealthTracker {
 		if (this.textRing.length > this.ringSize) this.textRing.shift();
 	}
 
-	/** 1 = healthy. Combines repetition ratio and recent error rate. */
+	/** 1 = healthy. Combines repetition, recent error rate, and stuckness drift. */
 	score(): number {
 		const rep = this.repetition();
 		const err = this.errorRate();
-		return Math.max(0, Math.min(1, 1 - 0.6 * rep - 0.4 * err));
+		const drift = this.drift();
+		return Math.max(0, Math.min(1, 1 - 0.5 * rep - 0.3 * err - 0.2 * drift));
+	}
+
+	/**
+	 * "Stuckness" drift: mean pairwise trigram overlap across the whole recent
+	 * output ring. High values mean successive outputs keep circling the same
+	 * ground — the long-context failure mode of a model that has stopped
+	 * making progress — distinct from repetition(), which only compares the
+	 * newest output against history.
+	 */
+	private drift(): number {
+		if (this.textRing.length < 3) return 0;
+		const grams = this.textRing.map((t) => trigrams(t));
+		let sum = 0;
+		let pairs = 0;
+		for (let i = 0; i < grams.length; i++)
+			for (let j = i + 1; j < grams.length; j++) {
+				sum += jaccard(grams[i]!, grams[j]!);
+				pairs++;
+			}
+		return pairs === 0 ? 0 : sum / pairs;
 	}
 
 	/** Fraction of trigrams in the newest output already seen in prior outputs. */
@@ -50,6 +71,13 @@ export class HealthTracker {
 		const recent = this.errorRing.slice(-10);
 		return recent.filter(Boolean).length / recent.length;
 	}
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+	if (a.size === 0 || b.size === 0) return 0;
+	let inter = 0;
+	for (const g of a) if (b.has(g)) inter++;
+	return inter / (a.size + b.size - inter);
 }
 
 function trigrams(text: string): Set<string> {
