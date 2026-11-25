@@ -157,3 +157,16 @@ export function textOf(content: AgentMessage["content"]): string {
 export function resultText(m: AgentMessage): string {
 	return textOf(m.content);
 }
+
+/** Blob keys (content hashes plus legacy refs) referenced by any persisted index in any branch. */
+export function liveBlobKeys(entries: Array<{ type?: string; customType?: string; data?: unknown }>): Set<string> {
+	const keys = new Set<string>();
+	for (const e of entries) {
+		if (e.type !== "custom" || e.customType !== ENTRY_TYPE) continue;
+		for (const r of (e.data as PersistedIndex | undefined)?.records ?? []) {
+			if (r.hash) keys.add(r.hash);
+			if (r.ref) keys.add(r.ref);
+		}
+	}
+	return keys;
+}

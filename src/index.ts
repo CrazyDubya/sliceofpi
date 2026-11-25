@@ -22,7 +22,7 @@ import type { AgentMessage, ExtensionAPI, ExtensionContext, SessionEntry } from 
 import { isUserMessage, runPipeline } from "./pipeline.ts";
 import { bm25Search, type SearchDoc } from "./search.ts";
 import { gcBlobs, readSpill, spill } from "./spill.ts";
-import { ENTRY_TYPE, resultText, textOf, SliceState, type PersistedIndex } from "./state.ts";
+import { ENTRY_TYPE, liveBlobKeys, resultText, textOf, SliceState, type PersistedIndex } from "./state.ts";
 import { residentTokens } from "./tokens.ts";
 
 const MAX_SEARCH_DOCS = 400;
@@ -53,7 +53,9 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		}
 		state = SliceState.restore(persisted);
 		const sessionFile = ctx.sessionManager.getSessionFile();
-		if (sessionFile) gcBlobs(sessionFile, state.refs());
+		// GC against the union of ALL branches' indexes: the blob dir is shared by every branch.
+		const allEntries = ctx.sessionManager.getEntries?.();
+		if (sessionFile && allEntries) gcBlobs(sessionFile, liveBlobKeys(allEntries as SessionEntry[]));
 		updateFooter(ctx);
 	});
 
@@ -65,7 +67,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 		if (text.length > settings.spillThresholdChars && !rec.spilled) {
 			const sessionFile = ctx.sessionManager.getSessionFile();
 			if (sessionFile) {
-				await spill(sessionFile, rec.ref, text);
+				await spill(sessionFile, rec.hash, text);
 				state.setSpilled(event.toolCallId);
 			}
 		}
@@ -176,7 +178,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 				state.grantGrace(rec.ref, state.turn + settings.recoveryGraceTurns);
 				const sessionFile = ctx.sessionManager.getSessionFile();
 				if (rec.spilled && sessionFile) {
-					const { text, truncated } = readSpill(sessionFile, rec.ref);
+					const { text, truncated } = readSpill(sessionFile, rec.hash, undefined, rec.ref);
 					return { content: [{ type: "text", text: truncated ? `${text}\n[truncated by sliceofpi]` : text }] };
 				}
 				const inline = findInline(lastMessages, rec.toolCallId);
@@ -305,7 +307,7 @@ export default function sliceofpi(pi: ExtensionAPI): void {
 			const rec = state.get(m.toolCallId);
 			let text: string;
 			try {
-				text = rec?.spilled && sessionFile ? readSpill(sessionFile, rec.ref, SEARCH_CHARS_PER_DOC).text : resultText(m);
+				text = rec?.spilled && sessionFile ? readSpill(sessionFile, rec.hash, SEARCH_CHARS_PER_DOC, rec.ref).text : resultText(m);
 			} catch {
 				continue; // spill file deleted externally
 			}
